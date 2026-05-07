@@ -1,34 +1,26 @@
 FROM python:3.11-slim
 
+WORKDIR /app
+
+# Install Chrome + dependencies
 RUN apt-get update && apt-get install -y \
     wget \
-    gnupg \
-    unzip \
     curl \
-    libglib2.0-0 \
-    libnss3 \
-    libfontconfig1 \
+    unzip \
+    gnupg \
+    chromium \
+    chromium-driver \
     && rm -rf /var/lib/apt/lists/*
 
-RUN mkdir -p /etc/apt/keyrings && \
-    wget -q -O - https://dl.google.com/linux/linux_signing_key.pub | \
-    gpg --dearmor -o /etc/apt/keyrings/google.gpg
+# Copy requirements
+COPY requirements.txt .
 
-RUN echo "deb [arch=amd64 signed-by=/etc/apt/keyrings/google.gpg] http://dl.google.com/linux/chrome/deb/ stable main" \
-    > /etc/apt/sources.list.d/google-chrome.list
+# Install Python packages
+RUN pip install --no-cache-dir -r requirements.txt
+RUN pip install selenium webdriver-manager pytest
 
-RUN apt-get update && apt-get install -y google-chrome-stable
+# Copy app files
+COPY . .
 
-RUN CHROME_VERSION=$(google-chrome --version | awk '{print $3}' | cut -d. -f1) && \
-    wget -q https://storage.googleapis.com/chrome-for-testing-public/${CHROME_VERSION}.0.0/linux64/chromedriver-linux64.zip && \
-    unzip chromedriver-linux64.zip && \
-    mv chromedriver-linux64/chromedriver /usr/local/bin/ && \
-    chmod +x /usr/local/bin/chromedriver
-
-WORKDIR /tests
-
-COPY tests/ .
-
-RUN pip install --no-cache-dir selenium pytest
-
-CMD ["pytest", "test_selenium.py", "-v", "--tb=short"]
+# Run tests
+CMD ["pytest", "tests/"]
