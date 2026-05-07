@@ -1,0 +1,154 @@
+pipeline {
+    agent any
+ 
+    environment {
+        IMAGE_NAME     = 'todo-app'
+        TEST_IMAGE     = 'todo-test'
+        CONTAINER_NAME = 'todo-container'
+        APP_PORT       = '5000'
+        NETWORK_NAME   = 'todo-network'
+    }
+ 
+    stages {
+ 
+        // ================================================
+        // STAGE 1: CODE LINTING
+        // ================================================
+        stage('Code Linting') {
+            steps {
+                echo 'Running Code Linting with Flake8...'
+                sh '''
+                    pip install flake8 --quiet
+                    # Lint: max line length 120, ignore some stylistic rules
+                    flake8 app.py --max-line-length=120 --ignore=E302,W503
+                    echo 'Linting passed successfully!'
+                '''
+            }
+            post {
+                failure {
+                    echo 'Linting failed. Please fix code style issues.'
+                }
+            }
+        }
+ 
+        // ================================================
+        // STAGE 2: CODE BUILD
+        // ================================================
+        stage('Code Build') {
+            steps {
+                echo 'Building Docker image for the application...'
+                sh '''
+                    # Remove old image if it exists
+                    docker rmi -f ${IMAGE_NAME}:latest || true
+ 
+                    # Build Docker image from Dockerfile
+                    docker build -t ${IMAGE_NAME}:latest .
+                    echo 'Docker image built successfully!'
+                    docker images | grep ${IMAGE_NAME}
+                '''
+            }
+            post {
+                failure {
+                    echo 'Docker build failed. Check Dockerfile and dependencies.'
+                }
+            }
+        }
+ 
+        // ================================================
+        // STAGE 3: CONTAINERIZED DEPLOYMENT
+        // ================================================
+        stage('Containerized Deployment') {
+            steps {
+                echo 'Deploying application container...'
+                sh '''
+                    # Create Docker network if it does not exist
+                    docker network create ${NETWORK_NAME} || true
+ 
+                    # Stop and remove existing app container if running
+                    docker stop ${CONTAINER_NAME} || true
+                    docker rm ${CONTAINER_NAME}  || true
+ 
+                    # Stop and remove existing DB container if running
+                    docker stop todo-db || true
+                    docker rm todo-db  || true
+ 
+                    # Start MySQL database container
+                    docker run -d \
+                        --name todo-db \
+                        --network ${NETWORK_NAME} \
+                        -e MYSQL_ROOT_PASSWORD=password \
+                        -e MYSQL_DATABASE=tododb \
+                        mysql:8.0
+ 
+                    # Wait for MySQL to be ready
+                    echo 'Waiting for MySQL to initialize...'
+                    sleep 20
+ 
+                    # Start Flask application container
+                    docker run -d \
+                        --name ${CONTAINER_NAME} \
+                        --network ${NETWORK_NAME} \
+                        -p ${APP_PORT}:5000 \
+                        -e DB_HOST=todo-db \
+                        -e DB_USER=root \
+                        -e DB_PASS=password \
+                        -e DB_NAME=tododb \
+                        ${IMAGE_NAME}:latest
+ 
+                    echo 'Application deployed successfully!'
+                    docker ps | grep ${CONTAINER_NAME}
+                '''
+            }
+            post {
+                failure {
+                    echo 'Deployment failed. Check container logs.'
+                    sh 'docker logs ${CONTAINER_NAME} || true'
+                }
+            }
+        }
+ 
+        // ================================================
+        // STAGE 4: CONTAINERIZED SELENIUM TESTING
+        // ================================================
+        stage('Containerized Selenium Testing') {
+            steps {
+                echo 'Building Selenium test Docker image...'
+                sh '''
+                    # Build the Selenium test image
+                    docker build -f Dockerfile.test -t ${TEST_IMAGE}:latest .
+ 
+                    echo 'Running Selenium tests in container...'
+                    # Run tests in container connected to the same network as the app
+                    docker run --rm \
+                        --name selenium-tests \
+                        --network ${NETWORK_NAME} \
+                        ${TEST_IMAGE}:latest
+ 
+                    echo 'All Selenium tests passed!'
+                '''
+            }
+            post {
+                always {
+                    echo 'Cleaning up test containers...'
+                    sh 'docker rmi -f ${TEST_IMAGE}:latest || true'
+                }
+                failure {
+                    echo 'Selenium tests failed. Check test logs above.'
+                }
+            }
+        }
+ 
+    } // end stages
+ 
+    post {
+        always {
+            echo 'Pipeline execution complete.'
+        }
+        success {
+            echo 'All stages passed! Application is live and tested.'
+        }
+        failure {
+            echo 'Pipeline failed. Review the logs for each stage.'
+        }
+    }
+}
