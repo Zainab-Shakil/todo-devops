@@ -19,6 +19,7 @@ pipeline {
                 echo 'Running Code Linting with Flake8...'
                 sh '''
                     python3 -m pip install flake8 --quiet
+                    cd todo-app
                     python3 -m flake8 app.py --max-line-length=120 --ignore=E302,W503
                     echo 'Linting passed successfully!'
                 '''
@@ -41,7 +42,7 @@ pipeline {
                     docker rmi -f ${IMAGE_NAME}:latest || true
  
                     # Build Docker image from Dockerfile
-                    docker build -t ${IMAGE_NAME}:latest .
+                    docker build -t ${IMAGE_NAME}:latest ./todo-app
                     echo 'Docker image built successfully!'
                     docker images | grep ${IMAGE_NAME}
                 '''
@@ -114,7 +115,7 @@ pipeline {
                 echo 'Building Selenium test Docker image...'
                 sh '''
                     # Build the Selenium test image
-                    docker build -f Dockerfile.test -t ${TEST_IMAGE}:latest .
+                    docker build -f ./todo-app/Dockerfile.test -t ${TEST_IMAGE}:latest ./todo-app
  
                     echo 'Running Selenium tests in container...'
                     # Run tests in container connected to the same network as the app
